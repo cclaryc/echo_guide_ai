@@ -1,30 +1,47 @@
 package com.example.myapplication.ai
 
+import android.content.Context
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import com.example.myapplication.state.LightState
-import com.example.myapplication.utils.ImageUtils
 
 object VisionPipeline {
 
-    fun process(image: ImageProxy): LightState {
-        Log.d("VisionPipeline", "Procesăm frame: format=${image.format} rot=${image.imageInfo.rotationDegrees}")
+    var detector: YoloV5OnnxDetector? = null
+    private var appContext: Context? = null   // 🔥 salvăm contextul
 
-        val bitmap = try {
-            ImageUtils.imageProxyToBitmap(image)
-        } catch (e: Exception) {
-            Log.e("VisionPipeline", "Eroare conversie bitmap: ${e.message}")
+    fun init(context: Context) {
+        Log.d("VisionPipeline", "YOLO INIT...")
+        appContext = context.applicationContext
+        detector = YoloV5OnnxDetector(context)
+    }
+
+    fun process(image: ImageProxy): LightState {
+
+        val d = detector
+        if (d == null || appContext == null) {
+            Log.e("VisionPipeline", "YOLO NOT INITIALIZED!")
+            image.close()
             return LightState.NONE
         }
 
-        val state = try {
-            TrafficLightDetector.detect(bitmap)
+        val bitmap = try {
+            YuvToJpegConverter.yuv420ToBitmap(image, appContext!!)
         } catch (e: Exception) {
-            Log.e("VisionPipeline", "Eroare la detectie: ${e.message}")
-            LightState.NONE
+            Log.e("VisionPipeline", "Bitmap error: ${e.message}")
+            image.close()
+            return LightState.NONE
         }
 
-        Log.d("VisionPipeline", "Rezultat detectat: $state")
-        return state
+        // Închidem frame-ul înainte de YOLO
+        image.close()
+
+        return try {
+            d.detectTrafficLight(bitmap)
+        } catch (e: Exception) {
+            Log.e("VisionPipeline", "YOLO error: ${e.message}")
+            image.close()
+            LightState.NONE
+        }
     }
 }

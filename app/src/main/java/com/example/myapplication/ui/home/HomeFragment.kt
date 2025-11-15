@@ -18,6 +18,7 @@ import com.example.myapplication.utils.Permissions
 import android.speech.tts.TextToSpeech
 import java.util.Locale
 import android.widget.Toast
+import com.example.myapplication.ai.VisionPipeline
 
 class HomeFragment : Fragment(), SensorEventListener {
 
@@ -44,12 +45,15 @@ class HomeFragment : Fragment(), SensorEventListener {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        Log.d("HomeFragment", "onViewCreated")
+        super.onViewCreated(view, savedInstanceState)
 
         sensorManager = requireContext().getSystemService(Context.SENSOR_SERVICE) as SensorManager
         stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
 
         setupTts()
+
+        // AICI — INITIALIZĂM YOLO
+        VisionPipeline.init(requireContext())
 
         cameraManager = CameraManager(
             fragment = this,
@@ -63,7 +67,6 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         updateStatusText()
     }
-
     private fun setupTts() {
         tts = TextToSpeech(requireContext()) {
             if (it == TextToSpeech.SUCCESS) tts?.language = Locale("ro", "RO")
@@ -130,6 +133,7 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     fun handleTrafficLightState(state: LightState) {
         if (appState != AppState.CHECKING_TRAFFIC_LIGHT) return
+        binding.statusText.text = "Semafor detectat: $state"
 
         val now = System.currentTimeMillis()
         if (state == lastSpokenLightState && now - lastLightStateTimestamp < lightStateCooldownMs) return

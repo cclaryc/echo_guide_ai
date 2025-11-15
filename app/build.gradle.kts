@@ -39,6 +39,8 @@ android {
 }
 
 dependencies {
+    // AI integration YOLOV5
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.16.3")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

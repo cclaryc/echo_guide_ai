@@ -22,15 +22,14 @@ class CameraManager(
 ) {
 
     private var cameraProvider: ProcessCameraProvider? = null
-
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
     @SuppressLint("UnsafeOptInUsageError")
     fun startCamera() {
-        Log.d("CameraManager", "Pornim camera...")
 
-        val context = fragment.requireContext()
-        val future = ProcessCameraProvider.getInstance(context)
+        VisionPipeline.init(fragment.requireContext())
+
+        val future = ProcessCameraProvider.getInstance(fragment.requireContext())
 
         future.addListener({
             cameraProvider = future.get()
@@ -40,42 +39,29 @@ class CameraManager(
 
             val analyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
 
             analyzer.setAnalyzer(analysisExecutor) { image ->
+                val state = VisionPipeline.process(image)
 
-                Log.d("CameraManager", "Frame primit")
-
-                try {
-                    val state = VisionPipeline.process(image)
-
-                    Handler(Looper.getMainLooper()).post {
-                        onLightDetected(state)
-                    }
-                } catch (e: Exception) {
-                    Log.e("CameraManager", "Eroare în analyzer: ${e.message}")
-                } finally {
-                    try {
-                        image.close()
-                        Log.d("CameraManager", "Frame închis OK")
-                    } catch (e: Exception) {
-                        Log.e("CameraManager", "CRASH la image.close(): ${e.message}")
-                    }
+                Handler(Looper.getMainLooper()).post {
+                    onLightDetected(state)
                 }
             }
 
-            val selector = CameraSelector.DEFAULT_BACK_CAMERA
-
             cameraProvider?.unbindAll()
-            cameraProvider?.bindToLifecycle(fragment, selector, preview, analyzer)
+            cameraProvider?.bindToLifecycle(
+                fragment,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                preview,
+                analyzer
+            )
 
-            Log.d("CameraManager", "Camera pornită cu succes.")
-
-        }, ContextCompat.getMainExecutor(context))
+        }, ContextCompat.getMainExecutor(fragment.requireContext()))
     }
 
     fun stop() {
-        Log.d("CameraManager", "Oprim camera...")
         cameraProvider?.unbindAll()
     }
 }

@@ -206,18 +206,19 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         setupTts()
 
+
         VisionPipeline.init(requireContext())
-
-        VisionPipeline.setTrafficLightPresenceListener { found ->
-            if (found) {
-                val now = System.currentTimeMillis()
-
-                if (now - lastPresenceAnnounceTime > presenceCooldownMs) {
-                    speak("Am detectat un semafor.")
-                    lastPresenceAnnounceTime = now
-                }
-            }
-        }
+//
+//        VisionPipeline.setTrafficLightPresenceListener { found ->
+//            if (found) {
+//                val now = System.currentTimeMillis()
+//
+//                if (now - lastPresenceAnnounceTime > presenceCooldownMs) {
+//                    speak("Am detectat un semafor.")
+//                    lastPresenceAnnounceTime = now
+//                }
+//            }
+//        }
 // 🔥 AICI adaugi callback-ul pentru culoare:
         VisionPipeline.setTrafficLightColorListener { color ->
             handleTrafficLightState(color)
@@ -253,7 +254,9 @@ class HomeFragment : Fragment(), SensorEventListener {
         // PORNIM Locația doar la Start
         locationHelper.getLocation { lat, lon ->
             handleLocation(lat, lon)
-            recalcRoute(lat, lon)
+            if (!routeLoaded) {
+                recalcRoute(lat, lon)   // se calculează doar PRIMA DATĂ
+            }
         }
 
         cameraManager.startCamera()
@@ -282,7 +285,7 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         locationHelper.getLocation { lat, lon ->
             handleLocationUpdate(lat, lon)
-            recalcRoute(lat, lon)
+//            recalcRoute(lat, lon)
         }
 
         stepSensor?.also { sensor ->

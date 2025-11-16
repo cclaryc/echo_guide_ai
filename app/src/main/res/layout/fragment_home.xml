@@ -2,35 +2,53 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    >
+    android:layout_height="match_parent">
 
+    <!-- BUTON MARE SUS -->
+    <Button
+        android:id="@+id/locationButton"
+        android:layout_width="0dp"
+        android:layout_height="160dp"
+        android:text="SPUNE LOCAȚIA CURENTĂ"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+
+    <!-- CAMERA, ACUM MAI JOS (SUB BUTON) -->
     <androidx.camera.view.PreviewView
         android:id="@+id/cameraPreview"
         android:layout_width="0dp"
         android:layout_height="350dp"
-        app:layout_constraintTop_toTopOf="parent"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/locationButton"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        />
+        app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- TEXT LOCATIE SUB CAMERA -->
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Status"
+        android:text="Locație: "
         android:textSize="20sp"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="12dp"
         app:layout_constraintTop_toBottomOf="@id/cameraPreview"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- START ASSISTANT SUB TEXT -->
     <Button
         android:id="@+id/startButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Start Assistant"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="20dp"
         app:layout_constraintTop_toBottomOf="@id/statusText"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

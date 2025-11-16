@@ -11,6 +11,11 @@ object ColorAnalyzer {
     fun analyzeLightColor(crop: Bitmap): LightState {
         val w = crop.width
         val h = crop.height
+
+        // culoarea -> la inceput log
+        Log.d("COLOR", "Crop size = ${crop.width} x ${crop.height}")
+
+
         if (w <= 0 || h <= 0) return LightState.NONE
 
         // împărțim în 3 zone egale
@@ -60,7 +65,6 @@ object ColorAnalyzer {
 
         return when (maxVal) {
             redCount -> LightState.RED
-            yellowCount -> LightState.YELLOW
             greenCount -> LightState.GREEN
             else -> LightState.NONE
         }

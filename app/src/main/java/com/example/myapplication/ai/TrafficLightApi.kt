@@ -1,5 +1,6 @@
 package com.example.myapplication.ai
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
@@ -12,24 +13,32 @@ import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.min
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 
 object TrafficLightApi {
 
-    private const val API_KEY = "PUNE CHEIA MAAAAA"
+    private const val API_KEY = "Gzx1DRjksJQYkx6ckcbJ"
     private const val WORKFLOW_NAME = "custom-workflow"
 
     private val client = OkHttpClient()
 
+    private lateinit var appContext: Context
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
     fun detect(bitmap: Bitmap): LightState {
         return try {
 
-            // 1) Convertim imaginea în Base64 (obligatoriu pentru workflow)
+            // 1) conversia imaginii in base64
             val baos = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, baos)
             val jpegBytes = baos.toByteArray()
             val base64Image = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
 
-            // 2) Construim JSON UL CORECT pentru workflow
+            // 2) json-ul
             val json = """
             {
               "api_key": "$API_KEY",
@@ -93,14 +102,43 @@ object TrafficLightApi {
             val w = best.getDouble("width")
             val h = best.getDouble("height")
 
+            Log.d("BBOX", "JSON BOX → x=$x  y=$y  w=$w  h=$h")
+
             val left = max(0, (x - w / 2).toInt())
             val top = max(0, (y - h / 2).toInt())
             val right = min(bitmap.width, (x + w / 2).toInt())
             val bottom = min(bitmap.height, (y + h / 2).toInt())
+            Log.d(
+                "BBOX",
+                "CROP COORDS → left=$left  top=$top  right=$right  bottom=$bottom  (bitmap=${bitmap.width}x${bitmap.height})"
+            )
+
+
+
+            Log.d("DEBUG_BOX", """
+                BBOX:
+                x=$x
+                y=$y
+                width=$w
+                height=$h
+                ImageSize = ${bitmap.width} x ${bitmap.height}
+                CROP = left=$left top=$top right=$right bottom=$bottom
+            """.trimIndent())
 
             if (right <= left || bottom <= top) return LightState.NONE
 
             val crop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+
+            try {
+                val file = File(appContext.cacheDir, "debug_crop_${System.currentTimeMillis()}.jpg")
+                val fos = FileOutputStream(file)
+                crop.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+                fos.close()
+
+                Log.d("DEBUG_CROP", "Crop salvat: ${file.absolutePath}")
+            } catch (e: Exception) {
+                Log.e("DEBUG_CROP", "Eroare la salvare crop: ${e.message}")
+            }
 
             return ColorAnalyzer.analyzeLightColor(crop)
 

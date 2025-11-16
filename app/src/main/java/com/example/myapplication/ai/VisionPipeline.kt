@@ -10,7 +10,7 @@ object VisionPipeline {
 
     private var appContext: Context? = null
     private var lastApiCall = 0L
-    private const val API_INTERVAL_MS = 1200L    // 🔥 1.2 secunde între request-uri
+    private const val API_INTERVAL_MS = 1200L    // 1.2 secunde între request-uri
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -26,7 +26,7 @@ object VisionPipeline {
 
         val now = System.currentTimeMillis()
 
-        // 🔥 Throttling: ignorăm frame-urile prea dese
+        // Throttling: ignorăm frame-urile prea dese
         if (now - lastApiCall < API_INTERVAL_MS) {
             image.close()
             return LightState.NONE

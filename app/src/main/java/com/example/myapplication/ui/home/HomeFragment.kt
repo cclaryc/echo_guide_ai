@@ -20,6 +20,8 @@ import java.util.Locale
 import com.example.myapplication.ai.LocationHelper
 import com.example.myapplication.ai.VisionPipeline
 
+import com.example.myapplication.state.ObstacleState
+
 import org.json.JSONObject
 
 class HomeFragment : Fragment(), SensorEventListener {
@@ -223,13 +225,24 @@ class HomeFragment : Fragment(), SensorEventListener {
         VisionPipeline.setTrafficLightColorListener { color ->
             handleTrafficLightState(color)
         }
+
+
         cameraManager = CameraManager(
             fragment = this,
-            previewView = binding.cameraPreview
-        ) { state ->
-            Log.d("HomeFragment", "State primit din AI = $state")
-            handleTrafficLightState(state)
-        }
+            previewView = binding.cameraPreview,
+            onLightDetected = { state: LightState ->
+                Log.d("HomeFragment", "LightState din AI = $state")
+                handleTrafficLightState(state)
+            },
+            onObstacleDetected = { obstacleState: ObstacleState ->
+                Log.d("HomeFragment", "ObstacleState din AI = $obstacleState")
+
+                // aici poți adăuga și TTS, de exemplu:
+                // if (obstacleState == ObstacleState.OBSTACLE_AHEAD) {
+                //     speak("Atenție, obstacol în față.")
+                // }
+            }
+        )
 
         binding.startButton.setOnClickListener { onStartAssistantClicked() }
         updateStatusText()

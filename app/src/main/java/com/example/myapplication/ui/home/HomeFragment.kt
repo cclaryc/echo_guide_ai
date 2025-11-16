@@ -49,6 +49,8 @@ class HomeFragment : Fragment(), SensorEventListener {
 
 
     private lateinit var locationHelper: LocationHelper
+    private var lastLatitude: Double? = null
+    private var lastLongitude: Double? = null
 
 
     data class RouteStep(
@@ -76,6 +78,8 @@ class HomeFragment : Fragment(), SensorEventListener {
     private fun handleLocationUpdate(lat: Double, lon: Double) {
         Log.d("NAV", "Locație actualizată: $lat, $lon")
 
+        lastLatitude = lat
+        lastLongitude = lon
         if (!routeLoaded) return
 
         val nextStep = routeSteps[currentStepIndex]
@@ -189,14 +193,15 @@ class HomeFragment : Fragment(), SensorEventListener {
     }
 
 
-
-
-
-
     private fun handleLocation(lat: Double, lon: Double) {
         Log.d("HomeFragment", "Locație primită: lat=$lat  lon=$lon")
+
+        lastLatitude = lat
+        lastLongitude = lon
+
         binding.statusText.text = "Locație: $lat , $lon"
     }
+
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -244,9 +249,17 @@ class HomeFragment : Fragment(), SensorEventListener {
             }
         )
 
-        binding.startButton.setOnClickListener { onStartAssistantClicked() }
+        binding.startButton.setOnClickListener {
+            onStartAssistantClicked()
+            binding.startButton.visibility = View.GONE}
+
+        binding.locationButton.setOnClickListener {
+            speakCurrentLocation()
+        }
+
         updateStatusText()
     }
+
 
     private fun setupTts() {
         tts = TextToSpeech(requireContext()) {
@@ -289,6 +302,21 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     private fun speak(text: String) {
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_id")
+    }
+
+    private fun speakCurrentLocation() {
+        val lat = lastLatitude
+        val lon = lastLongitude
+
+        // Dacă încă nu avem nicio locație primită
+        if (lat == null || lon == null) {
+            speak("Locația nu este încă disponibilă. Te rog să încerci din nou peste câteva secunde.")
+            return
+        }
+
+        // Voiceover coordonate
+        val text = "Latitudine $lat, longitudine $lon."
+        speak(text)
     }
 
     // --- STEP SENSOR ---
@@ -377,6 +405,8 @@ class HomeFragment : Fragment(), SensorEventListener {
             else -> Unit
         }
     }
+
+
 
     override fun onDestroyView() {
         tts?.shutdown()

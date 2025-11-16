@@ -9,7 +9,25 @@ object VisionPipeline {
 
     var detector: YoloV5OnnxDetector? = null
     private var appContext: Context? = null   // 🔥 salvăm contextul
+    // --- CALLBACK-URI ---
+    private var onTrafficLightPresence: ((Boolean) -> Unit)? = null
+    private var onTrafficLightColor: ((LightState) -> Unit)? = null
 
+    fun setTrafficLightPresenceListener(cb: (Boolean) -> Unit) {
+        onTrafficLightPresence = cb
+    }
+
+    fun setTrafficLightColorListener(cb: (LightState) -> Unit) {
+        onTrafficLightColor = cb
+    }
+
+    fun notifyTrafficLightPresence(found: Boolean) {
+        onTrafficLightPresence?.invoke(found)
+    }
+
+    fun notifyTrafficLightColor(color: LightState) {
+        onTrafficLightColor?.invoke(color)
+    }
     fun init(context: Context) {
         Log.d("VisionPipeline", "YOLO INIT...")
         appContext = context.applicationContext

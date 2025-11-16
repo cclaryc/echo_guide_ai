@@ -11,6 +11,7 @@ import android.util.Log
 import kotlin.math.max
 import kotlin.math.min
 import com.example.myapplication.state.LightState
+import com.example.myapplication.ai.VisionPipeline
 
 
 class YoloV5OnnxDetector(private val context: Context) {
@@ -121,9 +122,13 @@ class YoloV5OnnxDetector(private val context: Context) {
         val output = results[0].value as Array<Array<FloatArray>>
         val detections = parseDetections(output[0])
 
+// NOTIFICĂM FAPTUL CĂ EXISTĂ sau NU EXISTĂ SEMAFOARE (OBIECT)
         if (detections.isEmpty()) {
+            VisionPipeline.notifyTrafficLightPresence(false)
             Log.d("YOLO", "Niciun semafor detectat.")
             return LightState.NONE
+        } else {
+            VisionPipeline.notifyTrafficLightPresence(true)
         }
 
         // ALEGEM SEMAFORUL PREDOMINANT — cel mai mare în scenă
@@ -158,7 +163,12 @@ class YoloV5OnnxDetector(private val context: Context) {
 
         val crop = Bitmap.createBitmap(original, left, top, right - left, bottom - top)
 
-        return analyzeLightColor(crop)
+        val color = analyzeLightColor(crop)
+
+        // NOTIFICARE CULOARE (RED / GREEN / NONE)
+        VisionPipeline.notifyTrafficLightColor(color)
+
+        return color
     }
 
     /**
@@ -244,13 +254,13 @@ class YoloV5OnnxDetector(private val context: Context) {
         val redRatio = redCount.toFloat() / total.toFloat()
 
         // dacă roșu e clar dominant (>65%)
-        if (redCount > 2) {
+        if (redCount > 0) {
             Log.d("YOLO_LIGHT", "semafor roșu")
             return LightState.RED
         }
 
         // dacă verde e clar dominant (<35% roșu)
-        if (greenCount > 2) {
+        if (greenCount > 0) {
             Log.d("YOLO_LIGHT", "semafor verde")
             return LightState.GREEN
         }

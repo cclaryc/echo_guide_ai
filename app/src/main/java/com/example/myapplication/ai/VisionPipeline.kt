@@ -11,7 +11,27 @@ object VisionPipeline {
     private var appContext: Context? = null
     private var lastApiCall = 0L
     private const val API_INTERVAL_MS = 1200L    // 1.2 secunde între request-uri
+    var detector: YoloV5OnnxDetector? = null
+    private var appContext: Context? = null   // 🔥 salvăm contextul
+    // --- CALLBACK-URI ---
+    private var onTrafficLightPresence: ((Boolean) -> Unit)? = null
+    private var onTrafficLightColor: ((LightState) -> Unit)? = null
 
+    fun setTrafficLightPresenceListener(cb: (Boolean) -> Unit) {
+        onTrafficLightPresence = cb
+    }
+
+    fun setTrafficLightColorListener(cb: (LightState) -> Unit) {
+        onTrafficLightColor = cb
+    }
+
+    fun notifyTrafficLightPresence(found: Boolean) {
+        onTrafficLightPresence?.invoke(found)
+    }
+
+    fun notifyTrafficLightColor(color: LightState) {
+        onTrafficLightColor?.invoke(color)
+    }
     fun init(context: Context) {
         appContext = context.applicationContext
     }

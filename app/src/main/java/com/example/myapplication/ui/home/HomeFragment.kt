@@ -37,9 +37,14 @@ class HomeFragment : Fragment(), SensorEventListener {
     private var stepsSinceStart: Int = 0
     private val targetSteps = 14
 
+    // --- VOICEOVER STATE MANAGEMENT ---
+    private var hasAnnouncedTrafficLight = false
     private var lastSpokenLightState = LightState.NONE
     private var lastLightStateTimestamp = 0L
     private val lightStateCooldownMs = 5000L
+    private var lastPresenceAnnounceTime = 0L
+    private val presenceCooldownMs = 4000L  // 4 secunde anti-spam
+
 
     private lateinit var locationHelper: LocationHelper
 
@@ -54,8 +59,14 @@ class HomeFragment : Fragment(), SensorEventListener {
     private var routeSteps: List<RouteStep> = emptyList()
     private var currentStepIndex = 0
 
+    private val lastStates = ArrayDeque<LightState>()
+    private val smoothingSize = 5
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
         _binding = FragmentHomeBinding.inflate(inflater, container, false)
         return binding.root
     }
@@ -178,8 +189,23 @@ class HomeFragment : Fragment(), SensorEventListener {
         stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
 
         setupTts()
+
         VisionPipeline.init(requireContext())
 
+        VisionPipeline.setTrafficLightPresenceListener { found ->
+            if (found) {
+                val now = System.currentTimeMillis()
+
+                if (now - lastPresenceAnnounceTime > presenceCooldownMs) {
+                    speak("Am detectat un semafor.")
+                    lastPresenceAnnounceTime = now
+                }
+            }
+        }
+// 🔥 AICI adaugi callback-ul pentru culoare:
+        VisionPipeline.setTrafficLightColorListener { color ->
+            handleTrafficLightState(color)
+        }
         cameraManager = CameraManager(
             fragment = this,
             previewView = binding.cameraPreview
@@ -194,7 +220,9 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     private fun setupTts() {
         tts = TextToSpeech(requireContext()) {
-            if (it == TextToSpeech.SUCCESS) tts?.language = Locale("ro", "RO")
+            if (it == TextToSpeech.SUCCESS) {
+                tts?.language = Locale("ro", "RO")
+            }
         }
     }
 
@@ -216,6 +244,8 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         appState = AppState.WALKING
         stepsSinceStart = 0
+        hasAnnouncedTrafficLight = false
+        lastSpokenLightState = LightState.NONE
         updateStatusText()
 
         speak("Ghidarea a început. Mergi drept aproximativ zece metri.")
@@ -229,6 +259,7 @@ class HomeFragment : Fragment(), SensorEventListener {
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_id")
     }
 
+    // --- STEP SENSOR ---
     override fun onResume() {
         super.onResume()
         VisionPipeline.init(requireContext())
@@ -268,24 +299,49 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    private fun handleTrafficLightState(state: LightState) {
-        if (appState != AppState.CHECKING_TRAFFIC_LIGHT) return
+    // --- TRAFFIC LIGHT LOGIC ---
+    fun handleTrafficLightState(state: LightState) {
 
-        binding.statusText.text = "Semafor detectat: $state"
+        // 1. Add to buffer
+        lastStates.addLast(state)
+        if (lastStates.size > smoothingSize) lastStates.removeFirst()
+
+        // 2. Find dominant state
+        val stableState = lastStates
+            .groupingBy { it }
+            .eachCount()
+            .maxByOrNull { it.value }!!.key
+
+        // 3. If stable state is NONE, do nothing
+        if (stableState == LightState.NONE) return
+
+        // 4. Announce "semafor detectat" only once
+        if (!hasAnnouncedTrafficLight) {
+            speak("Am detectat un semafor.")
+            hasAnnouncedTrafficLight = true
+        }
 
         val now = System.currentTimeMillis()
-        if (state == lastSpokenLightState && now - lastLightStateTimestamp < lightStateCooldownMs) return
 
-        lastSpokenLightState = state
+        // 5. Cooldown
+        if (stableState == lastSpokenLightState &&
+            now - lastLightStateTimestamp < lightStateCooldownMs) {
+            return
+        }
+
+        lastSpokenLightState = stableState
         lastLightStateTimestamp = now
 
-        when (state) {
+        // 6. Speak color
+        when (stableState) {
             LightState.RED -> speak("Semafor roșu. Așteaptă.")
+
             LightState.GREEN -> {
                 speak("Semafor verde. Poți traversa.")
                 appState = AppState.DONE
                 updateStatusText()
             }
+
             else -> Unit
         }
     }

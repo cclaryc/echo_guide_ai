@@ -19,7 +19,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-
     <!-- CAMERA, ACUM MAI JOS (SUB BUTON) -->
     <androidx.camera.view.PreviewView
         android:id="@+id/cameraPreview"
@@ -45,12 +44,32 @@
     <!-- START ASSISTANT SUB TEXT -->
     <Button
         android:id="@+id/startButton"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:text="Start Assistant"
         android:layout_marginTop="20dp"
         app:layout_constraintTop_toBottomOf="@id/statusText"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 🔽 "AD" MIC, NE-CLICKABIL, ÎN DREAPTA JOS -->
+    <ImageView
+        android:id="@+id/adImage"
+        android:layout_width="0dp"
+        android:layout_height="60dp"
+        android:src="@drawable/demo_ad_banner"
+        android:contentDescription="@string/app_name"
+        android:clickable="false"
+        android:focusable="false"
+        android:adjustViewBounds="true"
+        android:scaleType="centerCrop"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginStart="0dp"
+        android:layout_marginEnd="0dp"
+        android:layout_marginBottom="0dp" />
+
+
 
 </androidx.constraintlayout.widget.ConstraintLayout>

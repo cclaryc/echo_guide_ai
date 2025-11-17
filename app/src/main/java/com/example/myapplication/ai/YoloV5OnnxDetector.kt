@@ -243,7 +243,7 @@ class YoloV5OnnxDetector(private val context: Context) {
         Log.d("YOLO_LIGHT", "redCount=$redCount greenCount=$greenCount")
 
         val total = redCount + greenCount
-        val MIN_PIXELS = 20
+        val MIN_PIXELS = 1
 
         // dacă nu avem suficienți pixeli colorați, nu ne pronunțăm
         if (total < MIN_PIXELS) {

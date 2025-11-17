@@ -16,16 +16,30 @@ import com.example.myapplication.state.AppState
 import com.example.myapplication.state.LightState
 import com.example.myapplication.utils.Permissions
 import android.speech.tts.TextToSpeech
-import java.util.Locale
 import com.example.myapplication.ai.LocationHelper
 import com.example.myapplication.ai.VisionPipeline
+import android.location.Geocoder
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import java.util.Locale
 
 import com.example.myapplication.state.ObstacleState
 
 import org.json.JSONObject
 
 class HomeFragment : Fragment(), SensorEventListener {
-
+    companion object {
+        private const val TAG = "HomeFragment"
+        private const val REQ_RECORD_AUDIO = 1001
+    }
     private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding!!
 
@@ -52,6 +66,10 @@ class HomeFragment : Fragment(), SensorEventListener {
     private var lastLatitude: Double? = null
     private var lastLongitude: Double? = null
 
+    private var speechRecognizer: SpeechRecognizer? = null
+    private lateinit var speechIntent: Intent
+    private val handler = Handler(Looper.getMainLooper())
+
 
     data class RouteStep(
         val lat: Double,
@@ -65,7 +83,41 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     private val lastStates = ArrayDeque<LightState>()
     private val smoothingSize = 5
+    private var destinationLat: Double? = null
+    private var destinationLon: Double? = null
+    // dacă e false: ignorăm semafoare/obstacole (nu vorbim despre ele)
+    private var envAnnouncementsEnabled: Boolean = false
+    // PENTRU OBSTACOLE!
+    private val obstacleHistory = ArrayDeque<ObstacleState>()
+    private val obstacleSmoothingSize = 5  // luăm 5 frame-uri recente
 
+    private var lastObstacleSpeakTime = 0L
+    private val obstacleCooldown = 5000L // 5 secunde
+
+    private fun handleObstacleState(state: ObstacleState) {
+
+        // 1. Add to buffer
+        obstacleHistory.addLast(state)
+        if (obstacleHistory.size > obstacleSmoothingSize) {
+            obstacleHistory.removeFirst()
+        }
+
+        // 2. Need 2 detections in the last 5 frames
+        val count = obstacleHistory.count { it == ObstacleState.OBSTACLE_AHEAD }
+        if (count < 2) return
+
+        val now = System.currentTimeMillis()
+
+        // 3. Cooldown anti-spam
+        if (now - lastObstacleSpeakTime < obstacleCooldown) {
+            return
+        }
+
+        lastObstacleSpeakTime = now
+
+        // 4. Announce
+        speak("Atenție, obstacol în față.")
+    }
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -92,8 +144,21 @@ class HomeFragment : Fragment(), SensorEventListener {
         if (dist < 10) {
             speak("Ai ajuns la pasul ${currentStepIndex + 1}")
             currentStepIndex++
+
+            if (currentStepIndex < routeSteps.size) {
+                val nextStep = routeSteps[currentStepIndex]
+                Log.d("NAV", "Următorul pas: ${nextStep.instruction}")
+                speak("Următorul pas: ${nextStep.instruction}")
+            } else {
+                Log.d("NAV", "Nu mai sunt pași în rută – probabil ai ajuns la destinație.")
+                speak("Ai ajuns la destinație.")
+                appState = AppState.DONE
+                updateStatusText()
+            }
+
             return
         }
+
 
         // verificăm dacă utilizatorul a deviat prea mult
         if (dist > 30) {
@@ -123,10 +188,14 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         Log.d("NAV", "Recalculez ruta din: $currentLat, $currentLon")
 
-        // Destinație exemplu – Palatul Parlamentului
-        val destLat = 47.4275
-        val destLon = 26.0875
+        val destLat = destinationLat
+        val destLon = destinationLon
 
+        if (destLat == null || destLon == null) {
+            Log.w("NAV", "Destination not set yet, cannot recalc route.")
+            speak("Destinația nu este setată încă.")
+            return
+        }
         // AICI VINE URL-ul CORECT
         val urlStr =
             "https://router.project-osrm.org/route/v1/foot/" +
@@ -157,32 +226,49 @@ class HomeFragment : Fragment(), SensorEventListener {
                     val lon = loc.getDouble(0)
                     val lat = loc.getDouble(1)
 
-                    // 🔥 AICI e modificarea importantă:
-                    val instruction =
-                        if (stepObj.has("instruction")) {
-                            stepObj.getString("instruction")
-                        } else {
-                            val type = maneuver.optString("type", "")
-                            val modifier = maneuver.optString("modifier", "")
+//                    // 🔥 AICI e modificarea importantă:
+//                    val instruction =
+//                        if (stepObj.has("instruction")) {
+//                            stepObj.getString("instruction")
+//                        } else {
+//                            val type = maneuver.optString("type", "")
+//                            val modifier = maneuver.optString("modifier", "")
+//
+//                            when (type) {
+//                                "turn" -> "Fă o întoarcere spre $modifier"
+//                                "depart" -> "Pornire spre $modifier"
+//                                "arrive" -> "Ai ajuns la destinație"
+//                                "new name" -> "Continuă pe strada următoare"
+//                                else -> "Continuați înainte"
+//                            }
+//                        }
+//
+//                    newSteps += RouteStep(lat, lon, instruction)
 
-                            when (type) {
-                                "turn" -> "Fă o întoarcere spre $modifier"
-                                "depart" -> "Pornire spre $modifier"
-                                "arrive" -> "Ai ajuns la destinație"
-                                "new name" -> "Continuă pe strada următoare"
-                                else -> "Continuați înainte"
-                            }
-                        }
+                    val type = maneuver.optString("type", "")
+                    val modifier = maneuver.optString("modifier", "")
+
+                    val instruction = buildRomanianInstruction(type, modifier)
 
                     newSteps += RouteStep(lat, lon, instruction)
+
+
                 }
 
                 requireActivity().runOnUiThread {
                     routeSteps = newSteps
                     routeLoaded = true
                     currentStepIndex = 0
-                    speak("Ruta a fost recalculată.")
+                    speak("Ruta a fost recalculată. Are ${newSteps.size} pași.")
+
+                    if (routeSteps.isNotEmpty()) {
+                        val firstInstruction = routeSteps[0].instruction
+                        Log.d("NAV", "Primul pas: $firstInstruction")
+                        speak("Primul pas: $firstInstruction")
+                    }
                     Log.d("NAV", "Rută recalculată – ${newSteps.size} pași.")
+                    // 🔥 abia ACUM permitem semafoare / obstacole
+                    envAnnouncementsEnabled = true
                 }
 
             } catch (e: Exception) {
@@ -205,6 +291,7 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+//        binding.adLabel.text = "Demo ad • v1.0"
 
         locationHelper = LocationHelper(requireContext())
 
@@ -213,24 +300,57 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         setupTts()
 
+        // 👇👇👇 AICI INIT SPEECH RECOGNIZER 👇👇👇
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(requireContext())
+        speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ro-RO")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        }
+
+        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                Log.d(TAG, "onReadyForSpeech")
+            }
+
+            override fun onBeginningOfSpeech() {
+                Log.d(TAG, "onBeginningOfSpeech")
+            }
+
+            override fun onRmsChanged(rmsdB: Float) { }
+            override fun onBufferReceived(buffer: ByteArray?) { }
+            override fun onEndOfSpeech() {
+                Log.d(TAG, "onEndOfSpeech")
+            }
+
+            override fun onError(error: Int) {
+                Log.e(TAG, "SpeechRecognizer error: $error")
+                speak("Nu am înțeles destinația. Vă rog să încercați din nou.")
+            }
+
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val text = matches?.firstOrNull()
+                Log.d(TAG, "onResults: matches=$matches, chosen='$text'")
+
+                if (text.isNullOrBlank()) {
+                    speak("Nu am înțeles destinația. Vă rog să încercați din nou.")
+                    return
+                }
+
+                handleSpokenDestination(text)
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) { }
+            override fun onEvent(eventType: Int, params: Bundle?) { }
+        })
+        // 👆👆👆 PÂNĂ AICI NOUL COD 👆👆👆
 
         VisionPipeline.init(requireContext())
-//
-//        VisionPipeline.setTrafficLightPresenceListener { found ->
-//            if (found) {
-//                val now = System.currentTimeMillis()
-//
-//                if (now - lastPresenceAnnounceTime > presenceCooldownMs) {
-//                    speak("Am detectat un semafor.")
-//                    lastPresenceAnnounceTime = now
-//                }
-//            }
-//        }
-// 🔥 AICI adaugi callback-ul pentru culoare:
+
         VisionPipeline.setTrafficLightColorListener { color ->
             handleTrafficLightState(color)
         }
-
 
         cameraManager = CameraManager(
             fragment = this,
@@ -241,17 +361,15 @@ class HomeFragment : Fragment(), SensorEventListener {
             },
             onObstacleDetected = { obstacleState: ObstacleState ->
                 Log.d("HomeFragment", "ObstacleState din AI = $obstacleState")
-
-                // aici poți adăuga și TTS, de exemplu:
-                // if (obstacleState == ObstacleState.OBSTACLE_AHEAD) {
-                //     speak("Atenție, obstacol în față.")
-                // }
             }
         )
 
         binding.startButton.setOnClickListener {
+            // aici ar fi bine să chemi flow-ul de voce:
+//            checkMicPermissionAndStartVoiceFlow()
             onStartAssistantClicked()
-            binding.startButton.visibility = View.GONE}
+            binding.startButton.visibility = View.GONE
+        }
 
         binding.locationButton.setOnClickListener {
             speakCurrentLocation()
@@ -259,6 +377,7 @@ class HomeFragment : Fragment(), SensorEventListener {
 
         updateStatusText()
     }
+
 
 
     private fun setupTts() {
@@ -276,13 +395,12 @@ class HomeFragment : Fragment(), SensorEventListener {
             Permissions.requestAllPermissions(this)
             return
         }
-
-        // PORNIM Locația doar la Start
+        // la început, blocăm anunțurile de mediu
+        envAnnouncementsEnabled = false
+        // Pornim locația ca să avem lastLatitude/lastLongitude
         locationHelper.getLocation { lat, lon ->
             handleLocation(lat, lon)
-            if (!routeLoaded) {
-                recalcRoute(lat, lon)   // se calculează doar PRIMA DATĂ
-            }
+            // NU mai chemăm recalcRoute aici – așteptăm destinația vocală
         }
 
         cameraManager.startCamera()
@@ -292,32 +410,190 @@ class HomeFragment : Fragment(), SensorEventListener {
         hasAnnouncedTrafficLight = false
         lastSpokenLightState = LightState.NONE
         updateStatusText()
+//        speak("Aplicație pornită. Bine v-am găsit. Spuneți unde vreți să mergeți.")
 
-        speak("Ghidarea a început. Mergi drept aproximativ zece metri.")
+        // Pornim locația ca să avem lastLatitude/lastLongitude
+//        locationHelper.getLocation { lat, lon ->
+//            handleLocation(lat, lon)
+//            // NU mai chemăm recalcRoute aici – așteptăm destinația vocală
+//        }
+        // De-abia acum pornim flow-ul vocal (va spune și „Bine v-am găsit” acolo)
+        checkMicPermissionAndStartVoiceFlow()
+    }
+    private fun checkMicPermissionAndStartVoiceFlow() {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            requireContext(),
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasPermission) {
+            Log.w(TAG, "RECORD_AUDIO permission not granted. Requesting...")
+            ActivityCompat.requestPermissions(
+                requireActivity(),
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                REQ_RECORD_AUDIO
+            )
+        } else {
+            startVoiceDestinationFlow()
+        }
+    }
+
+    private fun startVoiceDestinationFlow() {
+        Log.d(TAG, "startVoiceDestinationFlow()")
+
+        // Spunem tot mesajul aici
+        speak("Aplicație pornită. Bine v-am găsit. Spuneți unde vreți să mergeți.", flush = true)
+
+        handler.postDelayed({
+            Log.d(TAG, "Starting SpeechRecognizer listening for destination...")
+//            if (!SpeechRecognizer.isRecognitionAvailable(requireContext())) {
+//                Log.e(TAG, "Speech recognition not available on this device.")
+//                speak("Recunoașterea vocală nu este disponibilă pe acest dispozitiv.")
+//                return@postDelayed
+//            }
+            startListeningForDestination()
+        }, 4000L) // poți ajusta 3000–4500 în funcție de cât de repede vorbește TTS-ul
+    }
+    private fun handleSpokenDestination(destinationText: String) {
+        Log.d(TAG, "handleSpokenDestination(): '$destinationText'")
+
+        speak("Am înțeles. Mergem la adresa $destinationText.")
+
+        Thread {
+            try {
+                val geocoder = Geocoder(requireContext(), Locale("ro", "RO"))
+                Log.d(TAG, "Geocoding for text='$destinationText'")
+                val results = geocoder.getFromLocationName(destinationText, 1)
+                Log.d(TAG, "Geocoder returned ${results?.size ?: 0} result(s)")
+
+                if (!results.isNullOrEmpty()) {
+                    val addr = results[0]
+                    val destLat = addr.latitude
+                    val destLon = addr.longitude
+
+                    Log.d(TAG, "Destination geocoded: lat=$destLat, lon=$destLon, addr=$addr")
+
+                    // salvăm destinația global
+                    destinationLat = destLat
+                    destinationLon = destLon
+
+                    requireActivity().runOnUiThread {
+                        startRouteToDestination(destLat, destLon)
+                    }
+                } else {
+                    Log.w(TAG, "No geocoding results for '$destinationText'")
+                    requireActivity().runOnUiThread {
+                        speak("Nu am găsit adresa $destinationText. Vă rog să încercați din nou.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during geocoding for '$destinationText'", e)
+                requireActivity().runOnUiThread {
+                    speak("A apărut o eroare la căutarea adresei. Vă rog să încercați din nou.")
+                }
+            }
+        }.start()
+    }
+    private fun startRouteToDestination(destLat: Double, destLon: Double) {
+        val srcLat = lastLatitude
+        val srcLon = lastLongitude
+
+        if (srcLat == null || srcLon == null) {
+            Log.w(TAG, "Source location not available yet for routing. Requesting one-shot location...")
+            locationHelper.getLocation { lat, lon ->
+                lastLatitude = lat
+                lastLongitude = lon
+                Log.d(TAG, "Got fresh source location: $lat, $lon. Recalculating route...")
+                recalcRoute(lat, lon)
+                appState = AppState.WALKING
+                updateStatusText()
+//                speak("Ghidarea a început. Mergi drept aproximativ zece metri.")
+            }
+        } else {
+            Log.d(TAG, "Starting route from ($srcLat, $srcLon) to ($destLat, $destLon)")
+            recalcRoute(srcLat, srcLon)
+            appState = AppState.WALKING
+            updateStatusText()
+//            speak("Ghidarea a început. Mergi drept aproximativ zece metri.")
+        }
     }
 
     private fun updateStatusText() {
         binding.statusText.text = appState.toString()
     }
 
-    private fun speak(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_id")
+//    private fun speak(text: String) {
+//        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_id")
+//    }
+private fun speak(text: String, flush: Boolean = false) {
+    val queueMode = if (flush) {
+        TextToSpeech.QUEUE_FLUSH   // taie ce se spunea înainte
+    } else {
+        TextToSpeech.QUEUE_ADD     // adaugă la coadă, spune după ce termină
     }
+
+    tts?.speak(text, queueMode, null, System.currentTimeMillis().toString())
+}
 
     private fun speakCurrentLocation() {
         val lat = lastLatitude
         val lon = lastLongitude
 
-        // Dacă încă nu avem nicio locație primită
+        Log.d(TAG, "speakCurrentLocation() called. lastLatitude=$lat, lastLongitude=$lon")
+
         if (lat == null || lon == null) {
+            Log.w(TAG, "Location not available yet. lastLatitude or lastLongitude is null.")
             speak("Locația nu este încă disponibilă. Te rog să încerci din nou peste câteva secunde.")
             return
         }
 
-        // Voiceover coordonate
-        val text = "Latitudine $lat, longitudine $lon."
-        speak(text)
+        Thread {
+            try {
+                Log.d(TAG, "Starting reverse geocoding for lat=$lat, lon=$lon")
+                val geocoder = Geocoder(requireContext(), Locale("ro", "RO"))
+                val results = geocoder.getFromLocation(lat, lon, 1)
+
+                Log.d(TAG, "Geocoder returned ${results?.size ?: 0} results")
+
+                if (!results.isNullOrEmpty()) {
+                    val addr = results[0]
+                    Log.d(TAG, "Raw address from geocoder: $addr")
+
+                    val street = addr.thoroughfare ?: addr.featureName ?: "stradă necunoscută"
+                    val city = addr.locality ?: addr.subAdminArea ?: ""
+
+                    Log.d(TAG, "Parsed street='$street', city='$city'")
+
+                    val spokenText = if (city.isNotEmpty()) {
+                        "Ești pe $street, în $city."
+                    } else {
+                        "Ești pe $street."
+                    }
+
+                    requireActivity().runOnUiThread {
+                        Log.d(TAG, "Speaking address: $spokenText")
+                        binding.statusText.text = spokenText
+                        speak(spokenText)
+                    }
+                } else {
+                    Log.w(TAG, "No address found for lat=$lat, lon=$lon")
+                    requireActivity().runOnUiThread {
+                        val fallback = "Nu pot determina numele străzii. Coordonatele sunt $lat, $lon."
+                        binding.statusText.text = fallback
+                        speak(fallback)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during reverse geocoding for lat=$lat, lon=$lon", e)
+                requireActivity().runOnUiThread {
+                    val fallback = "A apărut o eroare la determinarea adresei. Coordonatele sunt $lat, $lon."
+                    binding.statusText.text = fallback
+                    speak(fallback)
+                }
+            }
+        }.start()
     }
+
 
     // --- STEP SENSOR ---
     override fun onResume() {
@@ -361,7 +637,11 @@ class HomeFragment : Fragment(), SensorEventListener {
 
     // --- TRAFFIC LIGHT LOGIC ---
     fun handleTrafficLightState(state: LightState) {
-
+        // dacă nu vrem încă să vorbim despre semafoare, ieșim imediat
+        if (!envAnnouncementsEnabled) {
+            Log.d(TAG, "Traffic light state ignored (envAnnouncementsEnabled=false), state=$state")
+            return
+        }
         // 1. Add to buffer
         lastStates.addLast(state)
         if (lastStates.size > smoothingSize) lastStates.removeFirst()
@@ -406,11 +686,94 @@ class HomeFragment : Fragment(), SensorEventListener {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
+        if (requestCode == REQ_RECORD_AUDIO) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "RECORD_AUDIO permission granted by user.")
+                startVoiceDestinationFlow()
+            } else {
+                Log.w(TAG, "RECORD_AUDIO permission denied by user.")
+                speak("Nu pot asculta destinația fără acces la microfon.")
+            }
+        }
+    }
 
     override fun onDestroyView() {
         tts?.shutdown()
         _binding = null
         super.onDestroyView()
     }
+
+    private fun startListeningForDestination() {
+        Log.d(TAG, "startListeningForDestination()")
+
+        if (!SpeechRecognizer.isRecognitionAvailable(requireContext())) {
+            Log.e(TAG, "Speech recognition not available on this device.")
+            speak("Recunoașterea vocală nu este disponibilă pe acest dispozitiv.")
+            return
+        }
+
+        try {
+            // Oprim orice TTS activ ca să nu ne auzim pe noi înșine
+//            tts?.stop()
+
+            Log.d(TAG, "Starting SpeechRecognizer listening for destination...")
+            speechRecognizer?.startListening(speechIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting speech recognition", e)
+            speak("A apărut o eroare la pornirea recunoașterii vocale.")
+            return
+        }
+
+        // Oprim ascultarea după ~5 secunde
+        handler.postDelayed({
+            Log.d(TAG, "Stopping SpeechRecognizer after 5 seconds.")
+            try {
+                speechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping speech recognition", e)
+            }
+        }, 5000L)
+    }
+    private fun modifierToRomanian(modifier: String?): String {
+        return when (modifier?.lowercase(Locale.ROOT)) {
+            "right" -> "dreapta"
+            "slight right" -> "dreapta ușor"
+            "sharp right" -> "dreapta brusc"
+
+            "left" -> "stânga"
+            "slight left" -> "stânga ușor"
+            "sharp left" -> "stânga brusc"
+
+            "uturn" -> "înapoi"
+            "straight", null, "" -> "înainte"
+
+            else -> modifier // fallback – în caz că vine ceva ciudat
+        }
+    }
+    private fun buildRomanianInstruction(type: String?, modifier: String?): String {
+        val m = modifierToRomanian(modifier)
+
+        return when (type?.lowercase(Locale.ROOT)) {
+            "depart" -> "Porniți $m."
+            "turn" -> {
+                if (modifier?.lowercase(Locale.ROOT) == "uturn") {
+                    "Întoarceți-vă în direcția opusă."
+                } else {
+                    "Faceți la $m."
+                }
+            }
+            "new name" -> "Continuați pe strada următoare."
+            "arrive" -> "Ați ajuns la destinație."
+            "roundabout" -> "Intrați în sensul giratoriu și ieșiți la ieșirea indicată."
+            else -> "Continuați $m."
+        }
+    }
+
 }

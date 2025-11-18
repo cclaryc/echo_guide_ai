@@ -14,7 +14,7 @@
 ## 📸 Preview
 
 <p align="center">
-  <img src="ss" width="300" alt="EchoGuide Screenshot">
+  <img src="ss.jpg" width="300" alt="EchoGuide Screenshot">
 </p>
 
 ---
